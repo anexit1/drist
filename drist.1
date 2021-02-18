@@ -1,0 +1,135 @@
+.Dd $Mdocdate: July 17 2018 $
+.Dt DRIST 1
+.Os
+.Sh NAME
+.Nm drist
+.Nd dumb remote installer shell tool, a remote deployment tool
+.Sh SYNOPSIS
+.Nm
+.Op Fl p
+.Op Fl n
+.Op Fl s Op Fl e Ar sudo|doas
+.Ar server
+.Sh OPTIONS
+.Op Fl p
+to use persistent ssh connection, allowing to ssh only once
+for the differents steps.
+This uses ControlMaster feature from
+.Xr ssh 1 .
+
+.Op Fl n
+to simulate.
+Tells 
+.Nm
+to show what will happens if it runs.
+This will make a ssh connection to check the remote hostname.
+
+.Op Fl s
+use a program to execute a command as root on the remote server.
+Default is sudo.
+
+.Op Fl e Ar binary
+binary to use for executing the commands as root.
+This flag is only useful when used with
+.Fl s .
+
+.Sh DESCRIPTION
+.Nm
+is a tool to configure remote servers using
+.Xr ssh 1
+and
+.Xr rsync 1 .
+.Nm
+has been designed to be simple, so it may not offer all the features you want.
+.Pp
+When you run
+.Nm
+, it will look at a set of special directories in the current working
+directory.
+.Nm
+will connect to
+.Ar server
+via ssh(1) and request the remote
+.Em HOSTNAME
+by calling
+.Ql uname -n .
+.Pp
+After that following steps will be executed:
+.Bl -enum -offset indent -compact
+.It
+If folder
+.Ar files
+exists, its content is copied to
+.Ar server
+using
+.Xr rsync 1 .
+.It
+If folder
+.Ar files- Ns Em HOSTNAME
+exists, its content is copied to
+.Ar server
+using
+.Xr rsync 1 .
+.It
+If folder
+.Ar absent
+exists, filenames in it are deleted on
+.Ar server .
+.It
+If folder
+.Ar absent- Ns Em HOSTNAME
+exists, filenames in it are deleted on
+.Ar server .
+.It
+If file
+.Ar script
+exists, it is copied to
+.Ar server
+and executed there.
+.It
+If file
+.Ar script- Ns Em HOSTNAME
+exists, it is copied to
+.Ar server
+and executed there.
+.El
+.Pp
+The presence of each of those files or directories is optional.
+.Pp
+All files in either
+.Ar files
+or
+.Ar absent
+or
+.Ar files- Ns Em HOSTNAME
+etc. are relative to the root (/) directory.
+The specific files for
+.Em HOSTNAME
+are worked on after the common files.
+.Pp
+I recommend to write small "modules" which would install the required
+packages for a task and provide the files needed, rather than writing a
+full-blown module for deploying an entire system at once.
+.Nm
+does not handle file permissions and ownership.
+Those should be modified by the
+.Ar script
+file.
+.Sh EXAMPLES
+Please see the
+.Ar examples
+directory in the
+.Nm
+distribution.
+.Sh EXIT
+.Ex -std drist
+.Sh SEE ALSO
+.Xr rsync 1
+.Xr ssh 1
+.Xr ssh_config 5
+.Sh Authors
+.An -nosplit
+The
+.Nm
+program was written by
+.An Solène Rapenne Aq Mt solene@perso.pw
