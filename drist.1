@@ -1,38 +1,42 @@
-.Dd $Mdocdate: July 17 2018 $
+.Dd $Mdocdate: April 27 2020 $
 .Dt DRIST 1
 .Os
 .Sh NAME
 .Nm drist
 .Nd dumb remote installer shell tool, a remote deployment tool
 .Sh SYNOPSIS
-.Nm
 .Op Fl p
-.Op Fl n
+.Op Fl d
 .Op Fl s Op Fl e Ar sudo|doas
-.Ar server
+.Ar destination
 .Sh OPTIONS
-.Op Fl p
+.Bl -tag -width Ds
+.It Op Fl p
 to use persistent ssh connection, allowing to ssh only once
 for the differents steps.
 This uses ControlMaster feature from
 .Xr ssh 1 .
-
-.Op Fl n
-to simulate.
-Tells 
+.It Op Fl d
+to truncate reported hostname.
+Tells
 .Nm
-to show what will happens if it runs.
-This will make a ssh connection to check the remote hostname.
-
-.Op Fl s
+to truncate the reported remote hostname to the left-most component.
+.It Op Fl s
 use a program to execute a command as root on the remote server.
 Default is sudo.
-
-.Op Fl e Ar binary
+.It Op Fl e Ar binary
 binary to use for executing the commands as root.
 This flag is only useful when used with
 .Fl s .
-
+.It Ar destination
+Specify the remote servers you want drist to work on.
+.Ar destination
+can be a file containing a list of hosts, one per line or
+it can be addresses passed in the command line.
+If you specify multiples servers,
+.Nm
+will loop over the list respecting the list order.
+Note that only one file can be used in the command line.
 .Sh DESCRIPTION
 .Nm
 is a tool to configure remote servers using
@@ -57,49 +61,39 @@ by calling
 After that following steps will be executed:
 .Bl -enum -offset indent -compact
 .It
-If folder
+If directory
 .Ar files
 exists, its content is copied to
 .Ar server
 using
-.Xr rsync 1 .
+.Xr rsync 1
+in a temporary directory in ~/.drist_files_XXXXXXXX
 .It
-If folder
+If directory
 .Ar files- Ns Em HOSTNAME
 exists, its content is copied to
 .Ar server
 using
-.Xr rsync 1 .
-.It
-If folder
-.Ar absent
-exists, filenames in it are deleted on
-.Ar server .
-.It
-If folder
-.Ar absent- Ns Em HOSTNAME
-exists, filenames in it are deleted on
-.Ar server .
+.Xr rsync 1
+in a temporary directory in ~/.drist_files_XXXXXXXX .
 .It
 If file
 .Ar script
 exists, it is copied to
 .Ar server
-and executed there.
+and executed from the temporary directory.
 .It
 If file
 .Ar script- Ns Em HOSTNAME
 exists, it is copied to
 .Ar server
-and executed there.
+and executed from the temporary directory.
 .El
 .Pp
 The presence of each of those files or directories is optional.
 .Pp
 All files in either
 .Ar files
-or
-.Ar absent
 or
 .Ar files- Ns Em HOSTNAME
 etc. are relative to the root (/) directory.
@@ -124,8 +118,8 @@ distribution.
 .Sh EXIT
 .Ex -std drist
 .Sh SEE ALSO
-.Xr rsync 1
-.Xr ssh 1
+.Xr rsync 1 ,
+.Xr ssh 1 ,
 .Xr ssh_config 5
 .Sh Authors
 .An -nosplit

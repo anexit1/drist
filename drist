@@ -1,19 +1,74 @@
 #!/bin/sh
 
-SIMULATE=0
 SUDO=0
 SUDO_BIN=sudo
 EXEC=""
 SSHONCE=0
+TRUNCATE=0
+TEMPDIR=""
 
 usage() {
-	echo "$0 [-n] [-s [-e sudo|doas]] server"
+	echo "$0 [-p] [-d] [-s [-e sudo|doas]] server [...]"
 	exit 0
 }
 
-while getopts pnse: arg; do
+# $1 = directory name
+# $2 = remote server
+# $3 = tempdir
+copy_files() {
+	# -l = keep symlink / -D = special device
+	if [ -d "${1}" ]
+	then
+		LIST=$(mktemp /tmp/drist-rsync.XXXXXXXXXX)
+		if [ -f "$LIST" ]
+		then
+			printf 'Copying files from "%s" to temporary directory %s:\n' "$1" "$3"
+			find "${1}"/ -type f -or -type l | cut -d '/' -f 2- | tee "${LIST}" | sed 's/^/	\//'
+			rsync -t -e "ssh $SSH_PARAMS" -lD --files-from="${LIST}" "${1}/" "${2}":"/${3}"
+			rm "$LIST"
+		fi
+	fi
+}
+
+# $1 = script filename
+# $2 = remote server
+# $3 = tempdir
+remote_script() {
+	if [ -f "${1}" ]
+	then
+		printf 'Executing file "%s":\n' "$1"
+		ssh $SSH_PARAMS "${2}" "cd ${3} && DRIST=${3}/script &&
+		    cat - > \$DRIST &&
+		    chmod u+x \$DRIST &&
+		    ${EXEC} \$DRIST" < "$1"
+	fi
+}
+
+# $1 = remote server
+create_temp() {
+    TEMPDIR=$(ssh $SSH_PARAMS "$1" "mktemp -d ~/.drist_files_XXXXXXXXXXXXXXX")
+    if [ "$TEMPDIR" = "" ]; then
+        echo "mktemp error, aborting"
+        exit 1
+    fi
+}
+
+# $1 = remote server
+# $2 = temporary directory
+delete_temp() {
+    if echo "${2}" | grep drist_files_ >/dev/null ; then
+        ssh $SSH_PARAMS "$1" "rm -fr ${2}"
+    else
+        echo "Problem, TEMPDIR was reset during execution, current value is = $2"
+	exit 2
+    fi
+}
+
+
+# RUNTIME BEGINS HERE
+while getopts pndse: arg; do
 	case ${arg} in
-		n) SIMULATE=1 ;;
+		d) TRUNCATE=1 ;;
 		s) SUDO=1 ;;
 		e) SUDO_BIN="${OPTARG}" ;;
 		p) SSHONCE=1 ;;
@@ -34,88 +89,47 @@ then
 	SSH_PARAMS=-o"ControlMaster=auto"" "-o"ControlPath=/tmp/drist_ssh_%h_%p_%r.sock"" "-o"ControlPersist=1m"
 fi
 
-# check if host exists
-if [ "$#" -ne 1 ]; then
-	usage
+# start looping over server list
+if [ -f "$1" ]
+then
+	SERVER_LIST="$(tr '\n' ' ' < $1)"
 else
-	HOSTNAME=$(ssh $SSH_PARAMS "$1" "${EXEC} uname -n")
+	SERVER_LIST="$@"
+fi
+
+if [ "${SERVER_LIST}" = "" ]
+then
+	echo "No server specified"
+	exit 1
+fi
+
+for remote_server in ${SERVER_LIST}
+do
+	echo "Running on ${remote_server}"
+
+	# check if host exists
+	HOSTNAME=$(ssh $SSH_PARAMS "${remote_server}" "uname -n")
 	if [ "$?" -ne 0 ]; then
-		echo "Error while ssh ${1}"
+		echo "Error while ssh ${remote_server}"
 		exit 2
 	fi
-fi
 
-# $1 = directory name
-# $2 = remote server
-copy_files() {
-	# -l = keep symlink / -D = special device
-	if [ -d "${1}" ]
-	then
-		LIST=$(mktemp /tmp/drist-rsync.XXXXXXXXXX)
-		if [ -f "$LIST" ]
-		then
-			printf 'Copying files from folder "%s":\n' "$1"
-			find "${1}"/ -type f | cut -d '/' -f 2- | tee "${LIST}" | sed 's/^/	\//'
-			if [ "$SIMULATE" -ne 1 ]
-			then
-				rsync -e "ssh $SSH_PARAMS" --rsync-path="${EXEC} rsync" -lD --files-from="${LIST}" "${1}/" "${2}":/
-			fi
-			rm "$LIST"
-		fi
+	if [ "$TRUNCATE" -eq 1 ]; then
+		HOSTNAME="${HOSTNAME%%.*}"
 	fi
-}
 
-# $1 = script filename
-# $2 = remote server
-remote_script() {
-	if [ -f "${1}" ]
+	create_temp "${remote_server}"
+	copy_files "files" "${remote_server}" "$TEMPDIR"
+	copy_files "files-${HOSTNAME}" "${remote_server}" "$TEMPDIR"
+	remote_script "script" "${remote_server}" "$TEMPDIR"
+	remote_script "script-${HOSTNAME}" "${remote_server}" "$TEMPDIR"
+	delete_temp "${remote_server}" "$TEMPDIR"
+
+	# close socket if persistance is actived
+	if [ "$SSHONCE" -eq 1 ]
 	then
-		printf 'Executing file "%s":\n' "$1"
-		if [ "$SIMULATE" -ne 1 ]
-		then
-			ssh $SSH_PARAMS "${2}" "DRIST=$(mktemp /tmp/drist.XXXXXXXXXXXX) &&
-			    cat - > \$DRIST &&
-			    chmod u+x \$DRIST &&
-			    ${EXEC} \$DRIST ;
-			    rm \$DRIST" < "$1"
-		fi
+		ssh $SSH_PARAMS -O exit -N "$1"
 	fi
-}
 
-# $1 = directory name
-# $2 = remote server
-# it uses rm -v which is not POSIX compliant but most systems have it
-delete_files() {
-	if [ -d "${1}" ]
-	then
-		LIST=$(mktemp /tmp/drist-rsync.XXXXXXXXXX)
-		if [ -f "$LIST" ]
-		then
-			printf 'Removing files from folder "%s":\n' "$1" 
-			find "$1" -type f | sed 's/"/\\&/' | \
-				awk -v path="${1}" '{ printf "\"%s\" ",substr($0,length(path)+1)}' | \
-				tee "${LIST}" | sed 's/^/	/'
-			printf '\n' # add a new line
-
-			if [ "$SIMULATE" -ne 1 ]
-			then
-				test -s "$LIST" && ssh $SSH_PARAMS "$2" "${EXEC} rm $(cat $LIST)"
-			fi
-			rm $LIST
-		fi
-	fi
-}
-
-
-copy_files "files" "$1"
-copy_files "files-${HOSTNAME}" "$1"
-remote_script "script" "$1"
-remote_script "script-${HOSTNAME}" "$1"
-delete_files "absent" "$1"
-delete_files "absent-${HOSTNAME}" "$1"
-
-# close socket if persistance is actived
-if [ "$SSHONCE" -eq 1 ]
-then
-	ssh $SSH_PARAMS -O exit -N "$1"
-fi
+	unset TEMPDIR HOSTNAME
+done
